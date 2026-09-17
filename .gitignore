@@ -1,0 +1,12 @@
+# SQLite Data Vault Files
+*.db
+*.db-wal
+*.db-shm
+prototype/data/
+prototype/test_data.db
+
+# Certificates
+*.pem
+
+# Go Binary Output
+prototype/server
