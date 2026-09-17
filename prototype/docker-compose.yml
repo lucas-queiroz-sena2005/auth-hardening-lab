@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  auth-prototype:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auth_prototype
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./data.db:/app/data.db
+      - ./cert.pem:/app/cert.pem
+      - ./key.pem:/app/key.pem
+    environment:
+      - PORT=8443
