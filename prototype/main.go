@@ -270,12 +270,7 @@ func main() {
 		log.Fatalf("Failed to initialize database schema: %v", err)
 	}
 
-	// 3. Ensure TLS certificates exist
-	if err := ensureTLSCertificates("cert.pem", "key.pem"); err != nil {
-		log.Fatalf("Failed to generate TLS certificates: %v", err)
-	}
-
-	// 4. Register HTTP Router & Handlers
+	// 3. Register HTTP Router & Handlers
 	mux := http.NewServeMux()
 
 	// Auth endpoints with rate limiting
@@ -291,9 +286,9 @@ func main() {
 		http.ServeFile(w, r, "static/index.html")
 	})
 
-	// 5. Hardened HTTP Server with strict timeouts and TLS 1.3
+	// 4. Hardened HTTP Server
 	srv := &http.Server{
-		Addr:              ":8443", // Using 8443 so non-root container/nix users can bind easily
+		Addr:              ":8443", // Default port 8443
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       5 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -310,8 +305,22 @@ func main() {
 		srv.Addr = ":" + port
 	}
 
-	log.Printf("[Server] Starting secure HTTPS server on https://localhost%s\n", srv.Addr)
-	if err := srv.ListenAndServeTLS("cert.pem", "key.pem"); err != nil {
-		log.Fatalf("Server error: %v", err)
+	disableTLS := os.Getenv("DISABLE_TLS") == "true" || os.Getenv("DISABLE_TLS") == "1"
+
+	if disableTLS {
+		log.Printf("[Server] Starting HTTP server (TLS disabled) on http://localhost%s\n", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
+	} else {
+		// Ensure TLS certificates exist
+		if err := ensureTLSCertificates("cert.pem", "key.pem"); err != nil {
+			log.Fatalf("Failed to generate TLS certificates: %v", err)
+		}
+
+		log.Printf("[Server] Starting secure HTTPS server on https://localhost%s\n", srv.Addr)
+		if err := srv.ListenAndServeTLS("cert.pem", "key.pem"); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
 	}
 }
