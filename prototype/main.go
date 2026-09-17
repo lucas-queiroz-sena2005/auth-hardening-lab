@@ -241,6 +241,11 @@ func main() {
 		}
 	}()
 
+	envSysKey := os.Getenv("SYS_KEY")
+	if envSysKey != "" {
+		sysKey = []byte(envSysKey)
+	}
+
 	log.Println("[Init] Pre-computing dummy bcrypt hash for timing attack protection...")
 	var err error
 	dummy, err = bcrypt.GenerateFromPassword([]byte("!"), 14)
