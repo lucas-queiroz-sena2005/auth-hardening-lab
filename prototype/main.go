@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -248,8 +249,18 @@ func main() {
 	}
 
 	// 2. Initialize SQLite Data Vault with Write-Ahead Logging (WAL) mode
-	log.Println("[Init] Connecting to SQLite Data Vault (data.db in WAL mode)...")
-	db, err = sql.Open("sqlite", "file:data.db?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "data/data.db"
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		log.Fatalf("Failed to create database directory: %v", err)
+	}
+
+	log.Printf("[Init] Connecting to SQLite Data Vault (%s in WAL mode)...\n", dbPath)
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", dbPath)
+	db, err = sql.Open("sqlite", dsn)
 	if err != nil {
 		log.Fatalf("Failed to open SQLite database: %v", err)
 	}

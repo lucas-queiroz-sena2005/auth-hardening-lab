@@ -10,8 +10,9 @@ services:
     ports:
       - "8443:8443"
     volumes:
-      - ./data.db:/app/data.db
+      - ./data:/app/data
       - ./cert.pem:/app/cert.pem
       - ./key.pem:/app/key.pem
     environment:
       - PORT=8443
+      - DB_PATH=/app/data/data.db

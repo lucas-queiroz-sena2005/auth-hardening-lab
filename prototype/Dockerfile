@@ -18,6 +18,8 @@ RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
+RUN mkdir -p /app/data
+
 # Copy compiled binary & static frontend assets
 COPY --from=builder /build/server /app/server
 COPY static /app/static
