@@ -15,7 +15,7 @@ import (
 
 func setupTestDB(t *testing.T) {
 	var err error
-	dummy, err = bcrypt.GenerateFromPassword([]byte("!"), 14)
+	dummy, err = bcrypt.GenerateFromPassword([]byte("!"), 12)
 	if err != nil {
 		t.Fatalf("Failed to generate dummy hash: %v", err)
 	}
@@ -28,7 +28,7 @@ func setupTestDB(t *testing.T) {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
 
-	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS usr(u TEXT UNIQUE, h BLOB)"); err != nil {
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS usr(u TEXT UNIQUE, h BLOB); CREATE TABLE IF NOT EXISTS sess(token TEXT PRIMARY KEY, u TEXT, exp DATETIME);"); err != nil {
 		t.Fatalf("Failed to init schema: %v", err)
 	}
 

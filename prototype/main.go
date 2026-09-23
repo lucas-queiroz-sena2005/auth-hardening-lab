@@ -63,8 +63,7 @@ func rl(next http.HandlerFunc) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": "Too many requests. Rate limit exceeded."})
 			return
 		}
-
-		next(w, r)
+	next(w, r)
 	}
 }
 
@@ -104,8 +103,8 @@ func op(w http.ResponseWriter, r *http.Request, isRegister bool) {
 			return
 		}
 
-		// Hash password with bcrypt cost 14 for strong work factor
-		hash, err := bcrypt.GenerateFromPassword([]byte(credentials.Password), 14)
+		// Hash password with bcrypt cost 12 for optimal speed and strong work factor
+		hash, err := bcrypt.GenerateFromPassword([]byte(credentials.Password), 12)
 		if err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -143,17 +142,37 @@ func op(w http.ResponseWriter, r *http.Request, isRegister bool) {
 		}
 
 		// Generate 32-byte cryptographically secure session token
-		token := make([]byte, 32)
-		if _, randErr := rand.Read(token); randErr != nil {
+		rawToken := make([]byte, 32)
+		if _, randErr := rand.Read(rawToken); randErr != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		tokenHex := fmt.Sprintf("%x", rawToken)
+		expiresAt := time.Now().Add(2 * time.Hour)
+
+		// Persist active server-side session with expiration
+		if _, err := db.Exec("INSERT INTO sess(token, u, exp) VALUES(?, ?, ?)", tokenHex, credentials.Username, expiresAt); err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
 
+		// Set HttpOnly, Secure session cookie as specified in CONTEXT.md
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session_id",
+			Value:    tokenHex,
+			Path:     "/",
+			Expires:  expiresAt,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteStrictMode,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "Login successful",
-			"token":   fmt.Sprintf("%x", token),
+			"message":    "Login successful",
+			"token":      tokenHex,
+			"expires_at": expiresAt.Format(time.RFC3339),
 		})
 	}
 }
@@ -189,7 +208,7 @@ func ensureTLSCertificates(certFile, keyFile string) error {
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
@@ -198,6 +217,10 @@ func ensureTLSCertificates(certFile, keyFile string) error {
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
 	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(certFile), 0755); err != nil {
 		return err
 	}
 
@@ -234,10 +257,18 @@ func ensureTLSCertificates(certFile, keyFile string) error {
 // MAIN ENTRYPOINT
 // ============================================================================
 func main() {
-	// 1. Background memory eviction routine to prevent OOM DOS from rate-limiter state growth
+	// Background eviction routines
 	go func() {
 		for range time.Tick(1 * time.Hour) {
 			ips.Clear()
+		}
+	}()
+
+	go func() {
+		for range time.Tick(15 * time.Minute) {
+			if db != nil {
+				db.Exec("DELETE FROM sess WHERE exp < ?", time.Now())
+			}
 		}
 	}()
 
@@ -248,7 +279,7 @@ func main() {
 
 	log.Println("[Init] Pre-computing dummy bcrypt hash for timing attack protection...")
 	var err error
-	dummy, err = bcrypt.GenerateFromPassword([]byte("!"), 14)
+	dummy, err = bcrypt.GenerateFromPassword([]byte("!"), 12)
 	if err != nil {
 		log.Fatalf("Failed to generate dummy hash: %v", err)
 	}
@@ -271,7 +302,7 @@ func main() {
 	}
 	defer db.Close()
 
-	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS usr(u TEXT UNIQUE, h BLOB)"); err != nil {
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS usr(u TEXT UNIQUE, h BLOB); CREATE TABLE IF NOT EXISTS sess(token TEXT PRIMARY KEY, u TEXT, exp DATETIME);"); err != nil {
 		log.Fatalf("Failed to initialize database schema: %v", err)
 	}
 
@@ -281,6 +312,65 @@ func main() {
 	// Auth endpoints with rate limiting
 	mux.HandleFunc("/reg", rl(func(w http.ResponseWriter, r *http.Request) { op(w, r, true) }))
 	mux.HandleFunc("/log", rl(func(w http.ResponseWriter, r *http.Request) { op(w, r, false) }))
+
+	// Session validation endpoint
+	mux.HandleFunc("/me", func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("session_id")
+		if err != nil || cookie.Value == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Not authenticated"})
+			return
+		}
+
+		var username string
+		var exp time.Time
+		err = db.QueryRow("SELECT u, exp FROM sess WHERE token = ?", cookie.Value).Scan(&username, &exp)
+		if err != nil || time.Now().After(exp) {
+			db.Exec("DELETE FROM sess WHERE token = ?", cookie.Value)
+			http.SetCookie(w, &http.Cookie{
+				Name:     "session_id",
+				Value:    "",
+				Path:     "/",
+				MaxAge:   -1,
+				Expires:  time.Unix(0, 0),
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteStrictMode,
+			})
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Session expired or invalid"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"u":   username,
+			"exp": exp.Format(time.RFC3339),
+		})
+	})
+
+	// Logout endpoint
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		if cookie, err := r.Cookie("session_id"); err == nil && cookie.Value != "" {
+			db.Exec("DELETE FROM sess WHERE token = ?", cookie.Value)
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session_id",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			Expires:  time.Unix(0, 0),
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteStrictMode,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
+	})
 
 	// Static HTML frontend endpoint
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +389,7 @@ func main() {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		TLSConfig: &tls.Config{
-			MinVersion:       tls.VersionTLS13,
+			MinVersion:       tls.VersionTLS12,
 			CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
 		},
 		Handler: mux,
@@ -318,13 +408,22 @@ func main() {
 			log.Fatalf("Server error: %v", err)
 		}
 	} else {
+		certFile := os.Getenv("CERT_FILE")
+		if certFile == "" {
+			certFile = "data/cert.pem"
+		}
+		keyFile := os.Getenv("KEY_FILE")
+		if keyFile == "" {
+			keyFile = "data/key.pem"
+		}
+
 		// Ensure TLS certificates exist
-		if err := ensureTLSCertificates("cert.pem", "key.pem"); err != nil {
+		if err := ensureTLSCertificates(certFile, keyFile); err != nil {
 			log.Fatalf("Failed to generate TLS certificates: %v", err)
 		}
 
 		log.Printf("[Server] Starting secure HTTPS server on https://localhost%s\n", srv.Addr)
-		if err := srv.ListenAndServeTLS("cert.pem", "key.pem"); err != nil {
+		if err := srv.ListenAndServeTLS(certFile, keyFile); err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
 	}

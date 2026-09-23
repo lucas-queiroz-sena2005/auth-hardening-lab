@@ -7,12 +7,25 @@ services:
       dockerfile: Dockerfile
     container_name: auth_prototype
     restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "8443:8443"
     volumes:
       - ./data:/app/data
-      - ./cert.pem:/app/cert.pem
-      - ./key.pem:/app/key.pem
+    tmpfs:
+      - /tmp
     environment:
       - PORT=8443
       - DB_PATH=/app/data/data.db
+      - CERT_FILE=/tmp/cert.pem
+      - KEY_FILE=/tmp/key.pem
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M

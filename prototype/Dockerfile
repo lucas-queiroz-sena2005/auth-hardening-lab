@@ -14,15 +14,23 @@ RUN go mod tidy && \
 # Production Runtime Container
 FROM docker.io/library/alpine:latest
 
-RUN apk add --no-cache ca-certificates tzdata
+# Install runtime packages and create unprivileged non-root appuser (UID 10001)
+RUN apk add --no-cache ca-certificates tzdata && \
+    adduser -D -u 10001 appuser
 
 WORKDIR /app
 
+# Create data directory for SQLite & TLS assets
 RUN mkdir -p /app/data
 
 # Copy compiled binary & static frontend assets
 COPY --from=builder /build/server /app/server
 COPY static /app/static
+
+# Set directory ownership to unprivileged user
+RUN chown -R appuser:appuser /app
+
+USER appuser
 
 EXPOSE 8443
 
