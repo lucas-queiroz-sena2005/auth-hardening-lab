@@ -1,6 +1,5 @@
 # ==============================================================================
 # SECURITY PROJECT .GITIGNORE
-# Comprehensive exclusion rules for Go, SQLite, Docker, TLS, Nix, OS & IDEs
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -13,8 +12,8 @@
 *.sqlite
 *.sqlite3
 data/
-prototype/data/
-prototype/test_data.db
+src/data/
+src/test_data.db
 
 # ------------------------------------------------------------------------------
 # 2. Cryptographic Secrets & TLS Certificates
@@ -26,8 +25,6 @@ prototype/test_data.db
 *.cer
 *.p12
 *.pfx
-prototype/cert.pem
-prototype/key.pem
 
 # ------------------------------------------------------------------------------
 # 3. Go Binaries & Build Artifacts
@@ -41,7 +38,8 @@ server.exe
 *.dylib
 *.test
 *.out
-prototype/server
+auth-prototype-*
+src/server
 
 # ------------------------------------------------------------------------------
 # 4. Environment Secrets & Config Overrides
@@ -83,3 +81,10 @@ Thumbs.db
 .nix-shell/
 result
 result-*
+
+# ------------------------------------------------------------------------------
+# 8. Archives
+# ------------------------------------------------------------------------------
+*.zip
+*.tar.gz
+*.7z

@@ -485,9 +485,56 @@
             font-size: 0.75rem;
             color: var(--text-tertiary);
         }
+
+        /* Language Toggle Widget */
+        .lang-selector {
+            position: fixed;
+            top: 1.25rem;
+            right: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+        }
+
+        .lang-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-tertiary);
+            padding: 4px 10px;
+            border-radius: calc(var(--radius-md) - 2px);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .lang-btn.active {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
     </style>
 </head>
 <body>
+
+<div class="lang-selector">
+    <button type="button" class="lang-btn active" id="langEN" onclick="setLanguage('en')">
+        <span>🇺🇸</span> EN
+    </button>
+    <button type="button" class="lang-btn" id="langPT" onclick="setLanguage('pt')">
+        <span>🇧🇷</span> PT-BR
+    </button>
+</div>
 
 <div class="auth-wrapper">
     <div class="brand-header">
@@ -497,7 +544,7 @@
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
             </svg>
         </div>
-        <h1>Identity Portal</h1>
+        <h1 id="brandTitle">Identity Portal</h1>
         <p id="brandSub">Sign in to access your secure session</p>
     </div>
 
@@ -518,7 +565,7 @@
         <form id="authForm" onsubmit="handleSubmit(event)">
             <!-- Username -->
             <div class="form-group">
-                <label for="username">Identity / Username</label>
+                <label for="username" id="lblUsername">Identity / Username</label>
                 <div class="input-wrapper">
                     <input type="text" id="username" required autocomplete="username" placeholder="e.g. alice" autofocus>
                 </div>
@@ -526,10 +573,10 @@
 
             <!-- Password -->
             <div class="form-group">
-                <label for="password">Credential / Password</label>
+                <label for="password" id="lblPassword">Credential / Password</label>
                 <div class="input-wrapper">
                     <input type="password" id="password" required autocomplete="current-password" placeholder="••••••••••••">
-                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility()" title="Toggle visibility">
+                    <button type="button" class="toggle-password" onclick="toggleVisibility('password', 'eyeIcon')" title="Toggle visibility">
                         <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                             <circle cx="12" cy="12" r="3"></circle>
@@ -541,19 +588,31 @@
 
             <!-- Confirm Password (Registration Only) -->
             <div class="form-group register-only" id="confirmGroup">
-                <label for="confirmPassword">Confirm Password</label>
+                <label for="confirmPassword" id="lblConfirmPassword">Confirm Password</label>
                 <div class="input-wrapper">
                     <input type="password" id="confirmPassword" autocomplete="new-password" placeholder="••••••••••••">
+                    <button type="button" class="toggle-password" onclick="toggleVisibility('confirmPassword', 'confirmEyeIcon')" title="Toggle visibility">
+                        <svg id="confirmEyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </button>
                 </div>
             </div>
 
             <!-- System Key (Registration Only) -->
             <div class="form-group register-only" id="keyGroup">
-                <label for="sysKey">Registration System Key</label>
+                <label for="sysKey" id="lblSysKey">Registration System Key</label>
                 <div class="input-wrapper">
-                    <input type="password" id="sysKey" value="admin-key" placeholder="Enter system key">
+                    <input type="password" id="sysKey" placeholder="Enter system key">
+                    <button type="button" class="toggle-password" onclick="toggleVisibility('sysKey', 'keyEyeIcon')" title="Toggle visibility">
+                        <svg id="keyEyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </button>
                 </div>
-                <div class="field-hint">Required for account authorization.</div>
+                <div class="field-hint" id="sysKeyHint">Required for account authorization.</div>
             </div>
 
             <!-- Submit Button -->
@@ -571,12 +630,12 @@
                     <polyline points="22 4 12 14.01 9 11.01"></polyline>
                 </svg>
             </div>
-            <h2>Session Authenticated</h2>
-            <p>Welcome back, <strong id="sessionUser" style="color: var(--text-primary);">User</strong>!</p>
+            <h2 id="sessionTitle">Session Authenticated</h2>
+            <p id="sessionSub">Welcome back, <strong id="sessionUser" style="color: var(--text-primary);">User</strong>!</p>
 
             <div class="token-container">
                 <div class="token-header">
-                    <label>Session Proof Identifier</label>
+                    <label id="lblTokenProof">Session Proof Identifier</label>
                     <button type="button" class="token-toggle-btn" onclick="toggleTokenVisibility()">
                         <svg id="tokenEyeIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -588,42 +647,31 @@
                 <div class="token-value" id="sessionToken">••••••••••••••••••••••••••••••••</div>
             </div>
 
-            <button type="button" class="logout-btn" onclick="logout()">Terminate Session</button>
+            <button type="button" class="logout-btn" id="logoutBtn" onclick="logout()">Terminate Session</button>
         </div>
 
-        <!-- Client Environment Status Widget -->
+        <!-- Security Tips Widget -->
         <div class="integrity-widget">
             <div class="integrity-header">
-                <div class="integrity-title">
+                <div class="integrity-title" id="lblSecurityTipsTitle">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                     </svg>
-                    Environment Status
+                    Security Tips
                 </div>
-                <span class="integrity-badge" id="shieldBadge">Normal</span>
             </div>
-            <div class="integrity-details">
-                <div class="integrity-item">
-                    <span class="lbl">Frame Status</span>
-                    <span class="val" id="valFrame">Top Level</span>
+            <div class="integrity-details" style="grid-template-columns: 1fr;">
+                <div class="integrity-item" style="padding: 0.75rem;">
+                    <span class="lbl" id="lblTip1" style="white-space: normal; line-height: 1.4; color: var(--text-primary);">Never share your password or system key with anyone.</span>
                 </div>
-                <div class="integrity-item">
-                    <span class="lbl">Automation</span>
-                    <span class="val" id="valDriver">None</span>
-                </div>
-                <div class="integrity-item">
-                    <span class="lbl">Inspector</span>
-                    <span class="val" id="valDevTools">Closed</span>
-                </div>
-                <div class="integrity-item">
-                    <span class="lbl">Latency</span>
-                    <span class="val" id="valTiming">Normal</span>
+                <div class="integrity-item" style="padding: 0.75rem;">
+                    <span class="lbl" id="lblTip2" style="white-space: normal; line-height: 1.4; color: var(--text-primary);">Always verify that you are on the correct domain before entering credentials.</span>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="footer-note">
+    <div class="footer-note" id="footerNote">
         Protected by Encrypted Transport (TLS) & Argon/Bcrypt Credential Hashing
     </div>
 </div>
@@ -632,6 +680,116 @@
     let currentMode = 'login';
     let actualTokenValue = '';
     let isTokenVisible = false;
+    let currentLang = 'pt';
+    let sysKeyEnabled = true;
+
+    const translations = {
+        en: {
+            title: 'Identity & Access Management Portal',
+            brandTitle: 'Identity Portal',
+            brandSubLogin: 'Sign in to access your secure session',
+            brandSubReg: 'Register a new identity in the system',
+            tabLogin: 'Sign In',
+            tabRegister: 'Register',
+            lblUsername: 'Identity / Username',
+            phUsername: 'e.g. alice',
+            lblPassword: 'Credential / Password',
+            lblConfirmPassword: 'Confirm Password',
+            lblSysKey: 'Registration System Key',
+            phSysKey: 'Enter system key',
+            passwordHint: 'Must be at least 8 characters long.',
+            sysKeyHint: 'Required for account authorization.',
+            btnSignIn: 'Sign In',
+            btnCreateAccount: 'Create Account',
+            sessionTitle: 'Session Authenticated',
+            lblTokenProof: 'Session Proof Identifier',
+            tokenShow: 'Show',
+            tokenHide: 'Hide',
+            tokenActive: 'Verified via HttpOnly Cookie',
+            logoutBtn: 'Terminate Session',
+            lblSecurityTipsTitle: 'Security Tips',
+            lblTip1: 'Never share your password or system key with anyone.',
+            lblTip2: 'Always verify that you are on the correct domain before entering credentials.',
+            footerNote: 'Protected by Encrypted Transport (TLS) & Argon/Bcrypt Credential Hashing',
+            errPassShort: 'Password must be at least 8 characters long.',
+            errPassMismatch: 'Passwords do not match.',
+            msgRegSuccess: 'Registration successful! Switch to Sign In.',
+            errRateLimit: 'Rate limit exceeded. Please wait a moment.',
+            errRegFailed: 'Registration failed.',
+            errLoginFailed: 'Invalid username or password.',
+            errNetwork: 'Network or server connection error.',
+            msgLoggedOut: 'Session terminated. Security cookie expired.'
+        },
+        pt: {
+            title: 'Portal de Gestão de Identidade e Acesso',
+            brandTitle: 'Portal de Identidade',
+            brandSubLogin: 'Entre para acessar sua sessão segura',
+            brandSubReg: 'Registre uma nova identidade no sistema',
+            tabLogin: 'Entrar',
+            tabRegister: 'Registrar',
+            lblUsername: 'Identidade / Usuário',
+            phUsername: 'ex: alice',
+            lblPassword: 'Credencial / Senha',
+            lblConfirmPassword: 'Confirmar Senha',
+            lblSysKey: 'Chave de Sistema de Registro',
+            phSysKey: 'Insira a chave do sistema',
+            passwordHint: 'Deve ter pelo menos 8 caracteres.',
+            sysKeyHint: 'Necessário para autorização da conta.',
+            btnSignIn: 'Entrar',
+            btnCreateAccount: 'Criar Conta',
+            sessionTitle: 'Sessão Autenticada',
+            lblTokenProof: 'Identificador de Prova de Sessão',
+            tokenShow: 'Exibir',
+            tokenHide: 'Ocultar',
+            tokenActive: 'Verificado via Cookie HttpOnly',
+            logoutBtn: 'Encerrar Sessão',
+            lblSecurityTipsTitle: 'Dicas de Segurança',
+            lblTip1: 'Nunca compartilhe sua senha ou chave de sistema com ninguém.',
+            lblTip2: 'Sempre verifique se você está no domínio correto antes de inserir credenciais.',
+            footerNote: 'Protegido por Transporte Criptografado (TLS) e Hashing de Credenciais Argon/Bcrypt',
+            errPassShort: 'A senha deve ter pelo menos 8 caracteres.',
+            errPassMismatch: 'As senhas não coincidem.',
+            msgRegSuccess: 'Registro realizado com sucesso! Alterne para Entrar.',
+            errRateLimit: 'Limite de requisições excedido. Por favor, aguarde um momento.',
+            errRegFailed: 'Falha no registro.',
+            errLoginFailed: 'Usuário ou senha inválidos.',
+            errNetwork: 'Erro de conexão com a rede ou servidor.',
+            msgLoggedOut: 'Sessão encerrada. Cookie de segurança expirado.'
+        }
+    };
+
+    function setLanguage(lang) {
+        currentLang = lang;
+        document.getElementById('langEN').classList.toggle('active', lang === 'en');
+        document.getElementById('langPT').classList.toggle('active', lang === 'pt');
+        
+        const t = translations[lang];
+        document.title = t.title;
+        document.getElementById('brandTitle').innerText = t.brandTitle;
+        document.getElementById('tabLogin').innerText = t.tabLogin;
+        document.getElementById('tabRegister').innerText = t.tabRegister;
+        document.getElementById('lblUsername').innerText = t.lblUsername;
+        document.getElementById('username').placeholder = t.phUsername;
+        document.getElementById('lblPassword').innerText = t.lblPassword;
+        document.getElementById('lblConfirmPassword').innerText = t.lblConfirmPassword;
+        document.getElementById('passwordHint').innerText = t.passwordHint;
+        document.getElementById('lblSysKey').innerText = t.lblSysKey;
+        document.getElementById('sysKey').placeholder = t.phSysKey;
+        document.getElementById('sysKeyHint').innerText = t.sysKeyHint;
+        document.getElementById('sessionTitle').innerText = t.sessionTitle;
+        document.getElementById('lblTokenProof').innerText = t.lblTokenProof;
+        document.getElementById('tokenEyeText').innerText = isTokenVisible ? t.tokenHide : t.tokenShow;
+        document.getElementById('logoutBtn').innerText = t.logoutBtn;
+        
+        // Security Tips widget
+        const iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`;
+        document.getElementById('lblSecurityTipsTitle').innerHTML = `${iconSvg} ${t.lblSecurityTipsTitle}`;
+        document.getElementById('lblTip1').innerText = t.lblTip1;
+        document.getElementById('lblTip2').innerText = t.lblTip2;
+        document.getElementById('footerNote').innerText = t.footerNote;
+
+        switchTab(currentMode, false);
+    }
 
     function clearFormFields() {
         document.getElementById('username').value = '';
@@ -639,11 +797,14 @@
         document.getElementById('confirmPassword').value = '';
     }
 
-    function switchTab(mode) {
+    function switchTab(mode, resetAlert = true) {
         currentMode = mode;
-        clearFormFields();
-        hideAlert();
+        if (resetAlert) {
+            clearFormFields();
+            hideAlert();
+        }
 
+        const t = translations[currentLang];
         const tabLogin = document.getElementById('tabLogin');
         const tabRegister = document.getElementById('tabRegister');
         const keyGroup = document.getElementById('keyGroup');
@@ -655,34 +816,39 @@
         if (mode === 'register') {
             tabLogin.classList.remove('active');
             tabRegister.classList.add('active');
-            keyGroup.classList.add('show');
+            if (sysKeyEnabled) {
+                keyGroup.classList.add('show');
+            } else {
+                keyGroup.classList.remove('show');
+            }
             confirmGroup.classList.add('show');
-            btnText.innerText = 'Create Account';
-            brandSub.innerText = 'Register a new identity in the system';
+            btnText.innerText = t.btnCreateAccount;
+            brandSub.innerText = t.brandSubReg;
             passwordHint.style.display = 'block';
         } else {
             tabRegister.classList.remove('active');
             tabLogin.classList.add('active');
             keyGroup.classList.remove('show');
             confirmGroup.classList.remove('show');
-            btnText.innerText = 'Sign In';
-            brandSub.innerText = 'Sign in to access your secure session';
+            btnText.innerText = t.btnSignIn;
+            brandSub.innerText = t.brandSubLogin;
             passwordHint.style.display = 'none';
         }
     }
 
-    function togglePasswordVisibility() {
-        const passInput = document.getElementById('password');
-        const eyeIcon = document.getElementById('eyeIcon');
-        
-        if (passInput.type === 'password') {
-            passInput.type = 'text';
+    function toggleVisibility(inputId, eyeIconId) {
+        const input = document.getElementById(inputId);
+        const eyeIcon = document.getElementById(eyeIconId);
+        if (!input || !eyeIcon) return;
+
+        if (input.type === 'password') {
+            input.type = 'text';
             eyeIcon.innerHTML = `
                 <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                 <line x1="1" y1="1" x2="23" y2="23"></line>
             `;
         } else {
-            passInput.type = 'password';
+            input.type = 'password';
             eyeIcon.innerHTML = `
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                 <circle cx="12" cy="12" r="3"></circle>
@@ -694,18 +860,19 @@
         const tokenValEl = document.getElementById('sessionToken');
         const tokenEyeText = document.getElementById('tokenEyeText');
         const tokenEyeIcon = document.getElementById('tokenEyeIcon');
+        const t = translations[currentLang];
 
         isTokenVisible = !isTokenVisible;
         if (isTokenVisible) {
-            tokenValEl.innerText = actualTokenValue || 'Session active';
-            tokenEyeText.innerText = 'Hide';
+            tokenValEl.innerText = actualTokenValue || t.tokenActive;
+            tokenEyeText.innerText = t.tokenHide;
             tokenEyeIcon.innerHTML = `
                 <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                 <line x1="1" y1="1" x2="23" y2="23"></line>
             `;
         } else {
             tokenValEl.innerText = '••••••••••••••••••••••••••••••••';
-            tokenEyeText.innerText = 'Show';
+            tokenEyeText.innerText = t.tokenShow;
             tokenEyeIcon.innerHTML = `
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                 <circle cx="12" cy="12" r="3"></circle>
@@ -747,6 +914,7 @@
         hideAlert();
         setLoading(true);
 
+        const t = translations[currentLang];
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
         const confirmPassword = document.getElementById('confirmPassword').value;
@@ -754,13 +922,13 @@
 
         if (currentMode === 'register') {
             if (password.length < 8) {
-                showAlert('Password must be at least 8 characters long.', 'error');
+                showAlert(t.errPassShort, 'error');
                 setLoading(false);
                 return;
             }
 
             if (password !== confirmPassword) {
-                showAlert('Passwords do not match.', 'error');
+                showAlert(t.errPassMismatch, 'error');
                 setLoading(false);
                 return;
             }
@@ -775,15 +943,15 @@
                 const data = await res.json();
                 
                 if (res.ok) {
-                    showAlert('Registration successful! Switch to Sign In.', 'success');
+                    showAlert(t.msgRegSuccess, 'success');
                     setTimeout(() => switchTab('login'), 1200);
                 } else if (res.status === 429) {
-                    showAlert('Rate limit exceeded. Please wait a moment.', 'warning');
+                    showAlert(t.errRateLimit, 'warning');
                 } else {
-                    showAlert(data.error || 'Registration failed.', 'error');
+                    showAlert(data.error || t.errRegFailed, 'error');
                 }
             } catch (err) {
-                showAlert('Network or server connection error.', 'error');
+                showAlert(t.errNetwork, 'error');
             }
         } else {
             // Login
@@ -799,12 +967,12 @@
                 if (res.ok) {
                     showSessionDashboard(username, data.token);
                 } else if (res.status === 429) {
-                    showAlert('Rate limit exceeded. Please wait a moment.', 'warning');
+                    showAlert(t.errRateLimit, 'warning');
                 } else {
-                    showAlert(data.error || 'Invalid username or password.', 'error');
+                    showAlert(data.error || t.errLoginFailed, 'error');
                 }
             } catch (err) {
-                showAlert('Network or server connection error.', 'error');
+                showAlert(t.errNetwork, 'error');
             }
         }
 
@@ -816,7 +984,7 @@
             const res = await fetch('/me');
             if (res.ok) {
                 const data = await res.json();
-                showSessionDashboard(data.u, 'Verified via HttpOnly Cookie');
+                showSessionDashboard(data.u, translations[currentLang].tokenActive);
             } else if (res.status === 401) {
                 resetToLoginForm();
             }
@@ -830,10 +998,11 @@
         document.getElementById('authForm').style.display = 'none';
         hideAlert();
 
+        const t = translations[currentLang];
         actualTokenValue = token || '';
         isTokenVisible = false;
         document.getElementById('sessionToken').innerText = '••••••••••••••••••••••••••••••••';
-        document.getElementById('tokenEyeText').innerText = 'Show';
+        document.getElementById('tokenEyeText').innerText = t.tokenShow;
         document.getElementById('sessionUser').innerText = user;
         document.getElementById('sessionCard').classList.add('show');
     }
@@ -845,7 +1014,7 @@
             console.log('Logout API call failed:', err);
         }
         resetToLoginForm();
-        showAlert('Session terminated. Security cookie expired.', 'success');
+        showAlert(translations[currentLang].msgLoggedOut, 'success');
     }
 
     function resetToLoginForm() {
@@ -856,78 +1025,23 @@
         switchTab('login');
     }
 
-    /* ========================================================================
-       CLIENT-SIDE ENVIRONMENT STATUS CHECKS
-       ======================================================================== */
-    function runClientIntegrityChecks() {
-        let isFlagged = false;
-
-        // 1. Frame Check (Anti-Clickjacking)
-        const valFrame = document.getElementById('valFrame');
-        if (window.self !== window.top) {
-            valFrame.innerText = 'Embedded Frame';
-            valFrame.style.color = 'var(--warning-color)';
-            isFlagged = true;
-        } else {
-            valFrame.innerText = 'Top Level';
-            valFrame.style.color = 'var(--success-color)';
+    // Run session validation on load
+    window.addEventListener('load', async () => {
+        setLanguage('pt');
+        try {
+            const cfgRes = await fetch('/config');
+            if (cfgRes.ok) {
+                const cfg = await cfgRes.json();
+                sysKeyEnabled = cfg.sysKeyRequired;
+            }
+        } catch (e) {
+            console.log('Failed to fetch config:', e);
         }
-
-        // 2. Automation Driver Detection
-        const valDriver = document.getElementById('valDriver');
-        const hasWebDriver = navigator.webdriver || window.domAutomation || window._phantom || window.callPhantom || window.__nightmare;
-        if (hasWebDriver) {
-            valDriver.innerText = 'Detected';
-            valDriver.style.color = 'var(--warning-color)';
-            isFlagged = true;
-        } else {
-            valDriver.innerText = 'None';
-            valDriver.style.color = 'var(--success-color)';
+        if (currentMode === 'register' && !sysKeyEnabled) {
+            document.getElementById('keyGroup').classList.remove('show');
         }
-
-        // 3. Window Inspector Check
-        const valDevTools = document.getElementById('valDevTools');
-        const widthThreshold = window.outerWidth - window.innerWidth > 160;
-        const heightThreshold = window.outerHeight - window.innerHeight > 160;
-        if (widthThreshold || heightThreshold) {
-            valDevTools.innerText = 'Active';
-            valDevTools.style.color = 'var(--warning-color)';
-        } else {
-            valDevTools.innerText = 'Closed';
-            valDevTools.style.color = 'var(--text-primary)';
-        }
-
-        // 4. Execution Latency Check
-        const valTiming = document.getElementById('valTiming');
-        const t0 = performance.now();
-        for (let i = 0; i < 1000; i++) { Math.sqrt(i); }
-        const t1 = performance.now();
-        if (t1 - t0 > 100) {
-            valTiming.innerText = 'Delayed';
-            valTiming.style.color = 'var(--warning-color)';
-        } else {
-            valTiming.innerText = 'Normal';
-            valTiming.style.color = 'var(--success-color)';
-        }
-
-        // Update badge
-        const badge = document.getElementById('shieldBadge');
-        if (isFlagged) {
-            badge.innerText = 'Notice';
-            badge.className = 'integrity-badge warn';
-        } else {
-            badge.innerText = 'Normal';
-            badge.className = 'integrity-badge';
-        }
-    }
-
-    // Run integrity checks and session validation on load
-    window.addEventListener('load', () => {
-        runClientIntegrityChecks();
         checkActiveSession();
     });
-    window.addEventListener('resize', runClientIntegrityChecks);
-    setInterval(runClientIntegrityChecks, 3000);
 </script>
 
 </body>

@@ -3,12 +3,15 @@ package main
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -25,20 +28,28 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/text/unicode/norm"
 	"golang.org/x/time/rate"
+	"golang.org/x/term"
 	_ "modernc.org/sqlite"
 )
 
+//go:embed static/*
+var staticFiles embed.FS
+
 // Global database connection, IP limiter store, dummy hash for timing protection, and system key.
 var (
-	db     *sql.DB
-	ips    sync.Map
-	dummy  []byte
-	sysKey = []byte("admin-key") // Default system registration key
+	db        *sql.DB
+	ips       sync.Map
+	dummy     []byte
+	sysKey    = []byte("admin-key") // Default system registration key
+	cryptoKey = []byte("super-secret") // Default cryptography key
 )
 
 // ============================================================================
-// SECURITY MECHANISM 1: IP Rate Limiting with IPv6 /64 Subnet Prefixing
-// Prevents brute-force attacks and IPv6 subnet rotation attacks.
+// Security: IP Rate Limiting
+// This middleware implements a token bucket rate limiter (1 req/sec, burst of 5).
+// It tracks IPv4 addresses directly, and groups IPv6 addresses by /64 prefix to
+// mitigate IPv6 subnet rotation attacks. This provides robust protection against
+// brute-force login attempts and denial-of-service (DoS) at the application layer.
 // ============================================================================
 func rl(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +79,10 @@ func rl(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // ============================================================================
-// SECURITY MECHANISM 2 & 3: Unicode Normalization & Constant-Time Operations
+// Auth Operations: Registration & Login
+// Implements secure credential handling, including length validation,
+// Unicode Normalization (NFC) to prevent homograph attacks, constant-time
+// comparisons to prevent timing attacks, and bcrypt hashing.
 // ============================================================================
 func op(w http.ResponseWriter, r *http.Request, isRegister bool) {
 	if r.Method != http.MethodPost {
@@ -90,20 +104,23 @@ func op(w http.ResponseWriter, r *http.Request, isRegister bool) {
 		return
 	}
 
-	// SECURITY MECHANISM 2: Enforce deterministic Unicode Normalization (NFC)
-	// Prevents homograph attacks and canonical equivalency bypasses.
+	// Security: Enforce deterministic Unicode Normalization (NFC)
+	// Normalizing the username prevents canonical equivalency bypasses and homograph attacks.
 	credentials.Username = norm.NFC.String(credentials.Username)
 
 	if isRegister {
-		// SECURITY MECHANISM 3A: Constant-time comparison for system key
-		if len(credentials.Key) != len(sysKey) || subtle.ConstantTimeCompare([]byte(credentials.Key), sysKey) != 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid system registration key."})
-			return
+		// Security: Constant-time comparison for system key to prevent timing attacks
+		if len(sysKey) > 0 {
+			if len(credentials.Key) != len(sysKey) || subtle.ConstantTimeCompare([]byte(credentials.Key), sysKey) != 1 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid system registration key."})
+				return
+			}
 		}
 
-		// Hash password with bcrypt cost 12 for optimal speed and strong work factor
+		// Security: Hash password with bcrypt cost 12. This is an optimal balance
+		// between security (work factor) and performance for this use case.
 		hash, err := bcrypt.GenerateFromPassword([]byte(credentials.Password), 12)
 		if err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -126,9 +143,10 @@ func op(w http.ResponseWriter, r *http.Request, isRegister bool) {
 		var storedHash []byte
 		err := db.QueryRow("SELECT h FROM usr WHERE u = ?", credentials.Username).Scan(&storedHash)
 
-		// SECURITY MECHANISM 3B: Constant-Time Execution via Dummy Hashing
-		// If user is not found, compare against a dummy hash to force identical CPU compute cycles
-		// and completely neutralize timing-based username enumeration attacks.
+		// Security: Dummy Hashing for Constant-Time Execution
+		// If a user is not found, we still perform a bcrypt comparison against a dummy hash.
+		// This ensures that the authentication endpoint takes roughly the same amount of CPU time
+		// whether the user exists or not, neutralizing timing-based username enumeration attacks.
 		if err != nil {
 			storedHash = dummy
 		}
@@ -147,7 +165,13 @@ func op(w http.ResponseWriter, r *http.Request, isRegister bool) {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		tokenHex := fmt.Sprintf("%x", rawToken)
+		
+		// HMAC the token using the cryptoKey for additional integrity
+		mac := hmac.New(sha256.New, cryptoKey)
+		mac.Write(rawToken)
+		hmacSum := mac.Sum(nil)
+		
+		tokenHex := fmt.Sprintf("%x.%x", rawToken, hmacSum)
 		expiresAt := time.Now().Add(2 * time.Hour)
 
 		// Persist active server-side session with expiration
@@ -257,6 +281,24 @@ func ensureTLSCertificates(certFile, keyFile string) error {
 // MAIN ENTRYPOINT
 // ============================================================================
 func main() {
+	// CLI Prompts for Security Keys
+	fmt.Print("Insira a Chave de Sistema de Registro (Pressione Enter para desabilitar. Esta chave restringe quem pode registrar novas contas): ")
+	if sysKeyInput, err := term.ReadPassword(int(os.Stdin.Fd())); err == nil {
+		if len(sysKeyInput) > 0 {
+			sysKey = sysKeyInput
+		} else {
+			sysKey = nil
+			fmt.Print("\n[!] Chave de Sistema de Registro DESABILITADA. Qualquer um pode registrar novas contas.")
+		}
+	}
+	fmt.Println()
+
+	fmt.Print("Insira a Chave Criptográfica (usada para o HMAC dos tokens): ")
+	if cryptoKeyInput, err := term.ReadPassword(int(os.Stdin.Fd())); err == nil && len(cryptoKeyInput) > 0 {
+		cryptoKey = cryptoKeyInput
+	}
+	fmt.Println("\n[Init] Starting Secure Identity Portal...")
+
 	// Background eviction routines
 	go func() {
 		for range time.Tick(1 * time.Hour) {
@@ -312,6 +354,12 @@ func main() {
 	// Auth endpoints with rate limiting
 	mux.HandleFunc("/reg", rl(func(w http.ResponseWriter, r *http.Request) { op(w, r, true) }))
 	mux.HandleFunc("/log", rl(func(w http.ResponseWriter, r *http.Request) { op(w, r, false) }))
+
+	// Config endpoint
+	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"sysKeyRequired": len(sysKey) > 0})
+	})
 
 	// Session validation endpoint
 	mux.HandleFunc("/me", func(w http.ResponseWriter, r *http.Request) {
@@ -372,13 +420,20 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
 	})
 
-	// Static HTML frontend endpoint
+	// Static HTML frontend endpoint from embedded files
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 			http.NotFound(w, r)
 			return
 		}
-		http.ServeFile(w, r, "static/index.html")
+		
+		indexData, err := staticFiles.ReadFile("static/index.html")
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.Write(indexData)
 	})
 
 	// 4. Hardened HTTP Server
